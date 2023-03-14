@@ -18,6 +18,12 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
+ 
+/*
+ *  Modifications Copyright (C) 2022-2023, PUFsecurity, All Rights Reserved
+ *  SPDX-License-Identifier: Apache-2.0
+ */
+
 /*
  *  The SSL 3.0 specification was drafted by Netscape in 1996,
  *  and became an IETF standard in 1999.
@@ -53,6 +59,13 @@
 #if defined(MBEDTLS_X509_CRT_PARSE_C)
 #include "mbedtls/oid.h"
 #endif
+
+#if defined(MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+#include "pufs_hmac_internal.h"
+#include "pufs_hmac.h"
+#include "common_alt.h"
+#endif
+
 
 /* Length of the "epoch" field in the record header */
 static inline size_t ssl_ep_len( const mbedtls_ssl_context *ssl )
@@ -444,7 +457,120 @@ static int tls_prf_generic( mbedtls_md_type_t md_type,
     return( 0 );
 }
 
+
+#if defined(MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+static int pufcc_tls_prf_generic( mbedtls_md_type_t md_type,
+                            const unsigned char *secret, size_t slen,
+                            const char *label,
+                            const unsigned char *random, size_t rlen,
+                            unsigned char *dstbuf, size_t dlen )
+{
+    size_t nb;
+    size_t i, j, k, md_len;
+    unsigned char tmp[128];
+    unsigned char h_i[MBEDTLS_MD_MAX_SIZE];
+    const mbedtls_md_info_t *md_info;
+    //mbedtls_md_context_t md_ctx;
+    pufs_hmac_ctx* hmac_ctx = NULL;
+
+    int ret;
+
+    PUFCC_LOG_FUNC("pufcc_tls_prf_generic \n");
+
+    //mbedtls_md_init( &md_ctx );
+
+    if( ( md_info = mbedtls_md_info_from_type( md_type ) ) == NULL )
+        return( MBEDTLS_ERR_SSL_INTERNAL_ERROR );
+
+    md_len = mbedtls_md_get_size( md_info );
+ 
+    if( sizeof( tmp ) < md_len + strlen( label ) + rlen )
+        return( MBEDTLS_ERR_SSL_BAD_INPUT_DATA );
+
+    nb = strlen( label );
+    memcpy( tmp + md_len, label, nb );
+    memcpy( tmp + md_len + nb, random, rlen );
+    nb += rlen;
+
+    PUFCC_LOG_DBG("pufcc_tls_prf_generic 1, slen:%d md_len:%d, nb:%d dlen:%d\n", slen, md_len, nb, dlen);
+    /*
+     * Compute P_<hash>(secret, label + random)[0..dlen]
+     */
+     
+    #if 0     
+    if ( ( ret = mbedtls_md_setup( &md_ctx, md_info, 1 ) ) != 0 )
+        return( ret );
+    #endif    
+
+    hmac_ctx = pufs_hmac_ctx_new();
+
+    hmac_ctx->hash = SHA_256;
+    ret = pufcc_mbedtls_md_hmac_starts( hmac_ctx, secret, slen );
+    if (ret != 0)
+    {
+        PUFCC_LOG_ERR("pufcc_mbedtls_md_hmac_starts failed\n");
+    }
+        
+    ret = pufcc_mbedtls_md_hmac_update( hmac_ctx, tmp + md_len, nb ); //tmp+md_len location of label, nb label size
+    if (ret != 0)
+    {
+        PUFCC_LOG_ERR("pufcc_mbedtls_md_hmac_update failed\n");
+        goto exit;
+    }
+
+    ret = pufcc_mbedtls_md_hmac_finish( hmac_ctx, tmp );  //A(1) = HMAC_hash(secret, A(0)=seed)
+    if (ret != 0)
+    {
+        PUFCC_LOG_ERR("pufcc_mbedtls_md_hmac_finish failed\n");
+        goto exit;
+    }
+ 
+    for( i = 0; i < dlen; i += md_len )
+    {
+          pufcc_mbedtls_md_hmac_reset ( hmac_ctx );
+          pufcc_mbedtls_md_hmac_update( hmac_ctx, tmp, md_len + nb ); 
+          pufcc_mbedtls_md_hmac_finish( hmac_ctx, h_i ); //A(i)=HMAC_hash(secrete, A(i-1) + seed), i=0,  
+  
+          pufcc_mbedtls_md_hmac_reset ( hmac_ctx );
+          pufcc_mbedtls_md_hmac_update( hmac_ctx, tmp, md_len );
+          pufcc_mbedtls_md_hmac_finish( hmac_ctx, tmp );  //A(i) = HMAC_hash(secrt, A(i-1))
+  
+          k = ( i + md_len > dlen ) ? dlen % md_len : md_len;
+  
+          for( j = 0; j < k; j++ )
+          {
+              dstbuf[i + j]  = h_i[j];
+          }
+      }
+  
+  
+      pufs_hmac_ctx_free(hmac_ctx);
+ 
+exit: 
+    mbedtls_platform_zeroize( tmp, sizeof( tmp ) );
+    mbedtls_platform_zeroize( h_i, sizeof( h_i ) );
+    //return( 0 );
+    if (ret != 0)
+    {
+        PUFCC_LOG_ERR("pufcc_tls_prf_generic failed, ret:0x%x\n", ret);
+    }
+    return ret;
+}
+#endif //eo PUFsecurity
+
 #if defined(MBEDTLS_SHA256_C)
+#if defined (MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+static int pufcc_tls_prf_sha256( const unsigned char *secret, size_t slen,
+                           const char *label,
+                           const unsigned char *random, size_t rlen,
+                           unsigned char *dstbuf, size_t dlen )
+{
+    PUFCC_LOG_FUNC("pufcc_tls_prf_sha256\n");
+
+    return( pufcc_tls_prf_generic( MBEDTLS_MD_SHA256, secret, slen,
+                             label, random, rlen, dstbuf, dlen ) );
+}
+#else
 static int tls_prf_sha256( const unsigned char *secret, size_t slen,
                            const char *label,
                            const unsigned char *random, size_t rlen,
@@ -453,6 +579,7 @@ static int tls_prf_sha256( const unsigned char *secret, size_t slen,
     return( tls_prf_generic( MBEDTLS_MD_SHA256, secret, slen,
                              label, random, rlen, dstbuf, dlen ) );
 }
+#endif /* MBEDTLS_PUFCC_TLS_PRF_CALC_ALT */
 #endif /* MBEDTLS_SHA256_C */
 
 #if defined(MBEDTLS_SHA512_C)
@@ -487,8 +614,15 @@ static void ssl_calc_finished_tls( mbedtls_ssl_context *, unsigned char *, int )
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2)
 #if defined(MBEDTLS_SHA256_C)
 static void ssl_update_checksum_sha256( mbedtls_ssl_context *, const unsigned char *, size_t );
+
+#if !defined(MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
 static void ssl_calc_verify_tls_sha256( mbedtls_ssl_context *,unsigned char * );
 static void ssl_calc_finished_tls_sha256( mbedtls_ssl_context *,unsigned char *, int );
+#endif
+#if defined(MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+static void pufcc_ssl_calc_verify_tls_sha256( mbedtls_ssl_context *,unsigned char * );
+static void pufcc_ssl_calc_finished_tls_sha256( mbedtls_ssl_context *,unsigned char *, int );
+#endif
 #endif
 
 #if defined(MBEDTLS_SHA512_C)
@@ -569,9 +703,15 @@ int mbedtls_ssl_derive_keys( mbedtls_ssl_context *ssl )
 #if defined(MBEDTLS_SHA256_C)
     if( ssl->minor_ver == MBEDTLS_SSL_MINOR_VERSION_3 )
     {
+    #if defined(MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+        handshake->tls_prf = pufcc_tls_prf_sha256;
+        handshake->calc_verify = pufcc_ssl_calc_verify_tls_sha256;
+        handshake->calc_finished = pufcc_ssl_calc_finished_tls_sha256;
+    #else
         handshake->tls_prf = tls_prf_sha256;
         handshake->calc_verify = ssl_calc_verify_tls_sha256;
         handshake->calc_finished = ssl_calc_finished_tls_sha256;
+    #endif        
     }
     else
 #endif
@@ -831,6 +971,18 @@ int mbedtls_ssl_derive_keys( mbedtls_ssl_context *ssl )
         memcpy( transform->iv_enc, key2 + transform->keylen,  iv_copy_len );
         memcpy( transform->iv_dec, key2 + transform->keylen + iv_copy_len,
                 iv_copy_len );
+
+#ifdef PUF_TLS_DEBUG  //PUFsecurity
+      MBEDTLS_SSL_DEBUG_BUF( 3, "PUFs debug: mac_enc", mac_enc, mac_key_len );
+      MBEDTLS_SSL_DEBUG_BUF( 3, "PUFs debug: mac_dec", mac_dec, mac_key_len );
+
+      MBEDTLS_SSL_DEBUG_BUF( 3, "PUFs debug: key 1 (client)", key1, transform->keylen );
+      MBEDTLS_SSL_DEBUG_BUF( 3, "PUFs debug: key 2 (server)", key2, transform->keylen );
+      MBEDTLS_SSL_DEBUG_BUF( 3, "PUFs debug: iv enc (client)", transform->iv_enc, iv_copy_len );
+      MBEDTLS_SSL_DEBUG_BUF( 3, "PUFs debug: iv dec (server)", transform->iv_dec, iv_copy_len );
+#endif
+
+        
     }
     else
 #endif /* MBEDTLS_SSL_CLI_C */
@@ -1087,6 +1239,29 @@ void ssl_calc_verify_tls( mbedtls_ssl_context *ssl, unsigned char hash[36] )
 
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2)
 #if defined(MBEDTLS_SHA256_C)
+#if defined(MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+void pufcc_ssl_calc_verify_tls_sha256( mbedtls_ssl_context *ssl, unsigned char hash[32] )
+{
+    mbedtls_sha256_context sha256;
+
+    PUFCC_LOG_FUNC("pufcc_ssl_calc_verify_tls_sha256 \n");
+                                               
+    mbedtls_sha256_init( &sha256 );
+
+    MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> calc verify sha256" ) );
+
+    mbedtls_sha256_clone( &sha256, &ssl->handshake->fin_sha256 );
+    mbedtls_sha256_finish_ret( &sha256, hash );
+
+    MBEDTLS_SSL_DEBUG_BUF( 3, "calculated verify result", hash, 32 );
+    MBEDTLS_SSL_DEBUG_MSG( 2, ( "<= calc verify" ) );
+
+    mbedtls_sha256_free( &sha256 );
+
+    return;
+}
+
+#else
 void ssl_calc_verify_tls_sha256( mbedtls_ssl_context *ssl, unsigned char hash[32] )
 {
     mbedtls_sha256_context sha256;
@@ -1105,6 +1280,7 @@ void ssl_calc_verify_tls_sha256( mbedtls_ssl_context *ssl, unsigned char hash[32
 
     return;
 }
+#endif /* MBEDTLS_PUFCC_TLS_PRF_CALC_ALT */
 #endif /* MBEDTLS_SHA256_C */
 
 #if defined(MBEDTLS_SHA512_C)
@@ -1331,6 +1507,11 @@ static int ssl_encrypt_buf( mbedtls_ssl_context *ssl )
 {
     mbedtls_cipher_mode_t mode;
     int auth_done = 0;
+
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    PUF_MBEDTLS_DEBUG_MSG("   Encrypt Buffer");
+#endif
+
 
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> encrypt buf" ) );
 
@@ -1683,6 +1864,11 @@ static int ssl_decrypt_buf( mbedtls_ssl_context *ssl )
     int auth_done = 0;
 #if defined(SSL_SOME_MODES_USE_MAC)
     size_t padlen = 0, correct = 1;
+#endif
+
+
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    PUF_MBEDTLS_DEBUG_MSG("   Decrypt Buffer");
 #endif
 
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> decrypt buf" ) );
@@ -4560,8 +4746,19 @@ int mbedtls_ssl_parse_certificate( mbedtls_ssl_context *ssl )
     const mbedtls_ssl_ciphersuite_t *ciphersuite_info = ssl->transform_negotiate->ciphersuite_info;
     int authmode = ssl->conf->authmode;
     uint8_t alert;
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    static uint8_t print_flag = 0;
+#endif
 
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> parse certificate" ) );
+
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    if (print_flag == 0)
+    {
+        PUF_MBEDTLS_DEBUG_MSG("<= Certificate Parsing ");
+        print_flag = 1;
+    }
+#endif
 
     if( ciphersuite_info->key_exchange == MBEDTLS_KEY_EXCHANGE_PSK ||
         ciphersuite_info->key_exchange == MBEDTLS_KEY_EXCHANGE_DHE_PSK ||
@@ -4931,6 +5128,16 @@ int mbedtls_ssl_parse_certificate( mbedtls_ssl_context *ssl )
 #endif /* MBEDTLS_DEBUG_C */
     }
 
+
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    if (print_flag == 1)
+    {
+        PUF_MBEDTLS_DEBUG_MSG("   Certificate Parsing - Done");
+        print_flag = 0;
+    }
+#endif
+
+
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "<= parse certificate" ) );
 
     return( ret );
@@ -4946,6 +5153,10 @@ int mbedtls_ssl_parse_certificate( mbedtls_ssl_context *ssl )
 int mbedtls_ssl_write_change_cipher_spec( mbedtls_ssl_context *ssl )
 {
     int ret;
+    
+    #ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    PUF_MBEDTLS_DEBUG_MSG("=> Client Change Cipher Spec");
+    #endif         
 
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> write change cipher spec" ) );
 
@@ -5291,6 +5502,56 @@ static void ssl_calc_finished_tls(
 
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2)
 #if defined(MBEDTLS_SHA256_C)
+#if defined(MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+static void pufcc_ssl_calc_finished_tls_sha256(
+                mbedtls_ssl_context *ssl, unsigned char *buf, int from )
+{
+    int len = 12;
+    const char *sender;
+    mbedtls_sha256_context sha256;
+    unsigned char padbuf[32];      
+    mbedtls_ssl_session *session = ssl->session_negotiate;
+
+    PUFCC_LOG_FUNC("pufcc_ssl_calc_finished_tls_sha256\n");    
+    
+    if( !session )
+        session = ssl->session;
+
+    mbedtls_sha256_init( &sha256 );
+
+    MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> calc  finished tls sha256" ) );
+
+    mbedtls_sha256_clone( &sha256, &ssl->handshake->fin_sha256 );
+
+    /*
+     * TLSv1.2:
+     *   hash = PRF( master, finished_label,
+     *               Hash( handshake ) )[0.11]
+     */
+
+#if !defined(MBEDTLS_SHA256_ALT)
+    MBEDTLS_SSL_DEBUG_BUF( 4, "finished sha2 state", (unsigned char *)
+                   sha256.state, sizeof( sha256.state ) );
+#endif
+
+    sender = ( from == MBEDTLS_SSL_IS_CLIENT )
+             ? "client finished"
+             : "server finished";
+
+    mbedtls_sha256_finish_ret( &sha256, padbuf );
+
+    ssl->handshake->tls_prf( session->master, 48, sender,
+                             padbuf, 32, buf, len );
+
+    MBEDTLS_SSL_DEBUG_BUF( 3, "calc finished result", buf, len );
+
+    mbedtls_sha256_free( &sha256 );
+
+    mbedtls_platform_zeroize(  padbuf, sizeof(  padbuf ) );
+
+    MBEDTLS_SSL_DEBUG_MSG( 2, ( "<= calc  finished" ) );
+}
+#else
 static void ssl_calc_finished_tls_sha256(
                 mbedtls_ssl_context *ssl, unsigned char *buf, int from )
 {
@@ -5337,6 +5598,7 @@ static void ssl_calc_finished_tls_sha256(
 
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "<= calc  finished" ) );
 }
+#endif /* MBEDTLS_PUFCC_TLS_PRF_CALC_ALT */ 
 #endif /* MBEDTLS_SHA256_C */
 
 #if defined(MBEDTLS_SHA512_C)
@@ -5480,6 +5742,11 @@ int mbedtls_ssl_write_finished( mbedtls_ssl_context *ssl )
 {
     int ret, hash_len;
 
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    PUF_MBEDTLS_DEBUG_MSG("=> Client Finished");
+#endif    
+
+
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> write finished" ) );
 
     /*
@@ -5606,7 +5873,19 @@ int mbedtls_ssl_parse_finished( mbedtls_ssl_context *ssl )
     unsigned int hash_len;
     unsigned char buf[SSL_MAX_HASH_LEN];
 
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    static uint8_t print_flag = 0;
+#endif
+
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> parse finished" ) );
+
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    if (print_flag == 0)
+    {
+        PUF_MBEDTLS_DEBUG_MSG("<= Server Finished ");
+        print_flag = 1;
+    }
+#endif 
 
     ssl->handshake->calc_finished( ssl, buf, ssl->conf->endpoint ^ 1 );
 
@@ -5674,6 +5953,11 @@ int mbedtls_ssl_parse_finished( mbedtls_ssl_context *ssl )
         mbedtls_ssl_recv_flight_completed( ssl );
 #endif
 
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    print_flag = 0;
+    PUF_MBEDTLS_DEBUG_MSG("   Server Finished - Done");
+#endif
+
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "<= parse finished" ) );
 
     return( 0 );
@@ -5690,6 +5974,12 @@ static void ssl_handshake_params_init( mbedtls_ssl_handshake_params *handshake )
      mbedtls_md5_starts_ret( &handshake->fin_md5  );
     mbedtls_sha1_starts_ret( &handshake->fin_sha1 );
 #endif
+
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    PUF_MBEDTLS_DEBUG_MSG("Handshake Parameters Init");
+#endif
+
+
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2)
 #if defined(MBEDTLS_SHA256_C)
     mbedtls_sha256_init(   &handshake->fin_sha256    );
@@ -8450,7 +8740,11 @@ int mbedtls_ssl_set_calc_verify_md( mbedtls_ssl_context *ssl, int md )
 #endif
 #if defined(MBEDTLS_SHA256_C)
         case MBEDTLS_SSL_HASH_SHA256:
+            #if defined(MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+            ssl->handshake->calc_verify = pufcc_ssl_calc_verify_tls_sha256;            
+            #else
             ssl->handshake->calc_verify = ssl_calc_verify_tls_sha256;
+            #endif
             break;
 #endif
         default:

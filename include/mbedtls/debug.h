@@ -21,6 +21,12 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
+ 
+/*
+ *  Modifications Copyright (C) 2022-2023, PUFsecurity, All Rights Reserved
+ *  SPDX-License-Identifier: Apache-2.0
+ */
+
 #ifndef MBEDTLS_DEBUG_H
 #define MBEDTLS_DEBUG_H
 
@@ -75,6 +81,10 @@
 #define MBEDTLS_SSL_DEBUG_CRT( level, text, crt )       do { } while( 0 )
 
 #endif /* MBEDTLS_DEBUG_C */
+
+#ifdef PUF_DEMO_LOG_TLS
+#define PUF_MBEDTLS_DEBUG_MSG(str, ...)     mbedtls_printf("\n""[TLS] " str "\n\n", ## __VA_ARGS__)
+#endif
 
 #ifdef __cplusplus
 extern "C" {

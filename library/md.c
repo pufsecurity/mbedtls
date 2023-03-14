@@ -23,6 +23,12 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 
+/*
+ *  Modifications Copyright (C) 2022-2023, PUFsecurity, All Rights Reserved
+ *  SPDX-License-Identifier: Apache-2.0
+ */
+
+
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "mbedtls/config.h"
 #else
@@ -49,6 +55,9 @@
 #include <stdio.h>
 #endif
 
+#if defined (MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+#include "common_alt.h"
+#endif
 /*
  * Reminder: update profiles in x509_crt.c when adding a new hash!
  */
@@ -315,6 +324,122 @@ cleanup:
     return( ret );
 }
 #endif /* MBEDTLS_FS_IO */
+
+#if defined (MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+int pufcc_mbedtls_md_hmac_starts( pufs_hmac_ctx *ctx, const unsigned char *key, size_t keylen )
+
+{
+    int ret = 0;
+    pufs_status_t status = SUCCESS;
+
+    PUFCC_LOG_FUNC("pufcc_mbedtls_md_hmac_starts keylen:%d \n", keylen);
+
+    if( ctx == NULL )
+        return( MBEDTLS_ERR_MD_BAD_INPUT_DATA );
+
+    //sha2-256
+    status = pufs_hmac_init(ctx, ctx->hash, SWKEY, key, keylen*8);
+
+    if (status != SUCCESS)        
+    {
+        PUFCC_LOG_ERR("pufcc_mbedtls_md_hmac_starts error - pufs_hamc_init failed, status:%d\n", status);
+        ret = MBEDTLS_ERR_MD_HW_ACCEL_FAILED;
+        goto exit;
+    }                
+
+exit:    
+    if (ret != 0)
+    {
+        PUFCC_LOG_ERR("pufcc_mbedtls_md_hmac_starts failed ret:0x%x status:%d\n", ret, status);         
+    }
+        
+    return( ret );
+}
+
+int pufcc_mbedtls_md_hmac_update( pufs_hmac_ctx *ctx, const unsigned char *input, size_t ilen )
+{
+
+    pufs_status_t status = SUCCESS;
+    int ret = 0;
+
+    PUFCC_LOG_FUNC("pufcc_mbedtls_md_hmac_update \n");
+
+    if( ctx == NULL || input == NULL || ilen == 0 )
+        return( MBEDTLS_ERR_MD_BAD_INPUT_DATA );
+
+    status = pufs_hmac_update(ctx, input, ilen);
+    if (status !=SUCCESS)
+    {
+        ret = MBEDTLS_ERR_MD_HW_ACCEL_FAILED;   
+        goto exit;
+    }
+
+exit:    
+    if (ret != 0)
+    {
+        PUFCC_LOG_ERR("pufcc_mbedtls_md_hmac_update failed ret:0x%x status:%d\n", ret, status);         
+    }
+
+    return ret;
+}
+
+int pufcc_mbedtls_md_hmac_finish( pufs_hmac_ctx *ctx, unsigned char *output )
+{
+    int ret = 0;
+    pufs_status_t status = SUCCESS;
+    pufs_dgst_st md;
+    
+    //PUFCC_LOG_FUNC("pufcc_mbedtls_md_hmac_finish \n");
+
+    status = pufs_hmac_final(ctx, &md);
+    if (status != SUCCESS)
+    {
+        ret = MBEDTLS_ERR_MD_HW_ACCEL_FAILED;   
+        goto exit;
+    }
+
+    PUFCC_LOG_FUNC("pufcc_mbedtls_md_hmac_finish md dlen:%d\n", md.dlen);
+
+    if (md.dlen > 0)
+    {
+        memcpy(output, md.dgst, md.dlen);
+    }        
+    else
+    {
+        PUFCC_LOG_ERR("pufcc_mbedtls_md_hmac_finish error -memcpy md dlen <=0 md dlen:%d\n", md.dlen);
+        ret = MBEDTLS_ERR_MD_HW_ACCEL_FAILED;  
+        goto exit;
+    }
+    
+exit:    
+    if (ret !=0)
+    {
+        PUFCC_LOG_ERR("pufcc_mbedtls_md_hmac_finish failed ret:0x%x status:%d\n", ret, status);         
+    }
+
+    return ret;    
+}
+
+int pufcc_mbedtls_md_hmac_reset( pufs_hmac_ctx *ctx )
+{
+
+
+    PUFCC_LOG_FUNC("pufcc_mbedtls_md_hmac_reset \n");
+
+
+    if( ctx == NULL)
+        return( MBEDTLS_ERR_MD_BAD_INPUT_DATA );
+
+    // only reset below parameters
+    ctx->buflen = 0;
+    ctx->minlen = 1;
+    ctx->curlen = 0;
+    ctx->start = false;    
+    ctx->op = HMAC_HMAC;
+
+    return 0;
+}
+#endif /* MBEDTLS_PUFCC_TLS_PRF_CALC_ALT */ //eo PUFsecurity
 
 int mbedtls_md_hmac_starts( mbedtls_md_context_t *ctx, const unsigned char *key, size_t keylen )
 {

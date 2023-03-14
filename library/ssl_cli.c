@@ -19,6 +19,12 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 
+/*
+ *  Modifications Copyright (C) 2022-2023, PUFsecurity, All Rights Reserved
+ *  SPDX-License-Identifier: Apache-2.0
+ */
+
+
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "mbedtls/config.h"
 #else
@@ -806,6 +812,10 @@ static int ssl_write_client_hello( mbedtls_ssl_context *ssl )
 
     MBEDTLS_SSL_DEBUG_MSG( 3, ( "client hello, max version: [%d:%d]",
                    buf[4], buf[5] ) );
+
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    PUF_MBEDTLS_DEBUG_MSG("=> Client Hello, generate %d random bytes", 32);
+#endif
 
     if( ( ret = ssl_generate_random( ssl ) ) != 0 )
     {
@@ -1740,6 +1750,10 @@ static int ssl_parse_server_hello( mbedtls_ssl_context *ssl )
         return( MBEDTLS_ERR_SSL_BAD_HS_SERVER_HELLO );
     }
 
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    PUF_MBEDTLS_DEBUG_MSG("<= Server Hello, chosen ciphersuite: %s", suite_info->name);
+#endif
+
     MBEDTLS_SSL_DEBUG_MSG( 3, ( "server hello, chosen ciphersuite: %s", suite_info->name ) );
 
     if( comp != MBEDTLS_SSL_COMPRESS_NULL
@@ -2007,6 +2021,9 @@ static int ssl_check_server_ecdh_params( const mbedtls_ssl_context *ssl )
     }
 
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "ECDH curve: %s", curve_info->name ) );
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity 
+    PUF_MBEDTLS_DEBUG_MSG("   ECDH curve: %s", curve_info->name);
+#endif    
 
 #if defined(MBEDTLS_ECP_C)
     if( mbedtls_ssl_check_curve( ssl, ssl->handshake->ecdh_ctx.grp.id ) != 0 )
@@ -2416,6 +2433,10 @@ static int ssl_parse_server_key_exchange( mbedtls_ssl_context *ssl )
         ciphersuite_info->key_exchange == MBEDTLS_KEY_EXCHANGE_ECDHE_PSK ||
         ciphersuite_info->key_exchange == MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA )
     {
+    
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+        PUF_MBEDTLS_DEBUG_MSG("<= Server Key Exchange with ECDH Params");
+#endif
         if( ssl_parse_server_ecdh_params( ssl, &p, end ) != 0 )
         {
             MBEDTLS_SSL_DEBUG_MSG( 1, ( "bad server key exchange message" ) );
@@ -2829,6 +2850,11 @@ static int ssl_write_client_key_exchange( mbedtls_ssl_context *ssl )
 
     MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> write client key exchange" ) );
 
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    PUF_MBEDTLS_DEBUG_MSG("=> Client Key Exchange");
+#endif
+    
+
 #if defined(MBEDTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)
     if( ciphersuite_info->key_exchange == MBEDTLS_KEY_EXCHANGE_DHE_RSA )
     {
@@ -2881,6 +2907,11 @@ static int ssl_write_client_key_exchange( mbedtls_ssl_context *ssl )
          * ECDH key exchange -- send client public value
          */
         i = 4;
+
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+        PUF_MBEDTLS_DEBUG_MSG("   Generate ECDH public key and calculate secret");
+#endif
+
 
         ret = mbedtls_ecdh_make_public( &ssl->handshake->ecdh_ctx,
                                 &n,
@@ -3484,6 +3515,9 @@ int mbedtls_ssl_handshake_client_step( mbedtls_ssl_context *ssl )
 #endif
 
        case MBEDTLS_SSL_SERVER_CHANGE_CIPHER_SPEC:
+           #ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+           PUF_MBEDTLS_DEBUG_MSG("<= Server Change Cipher Spec");
+           #endif
            ret = mbedtls_ssl_parse_change_cipher_spec( ssl );
            break;
 

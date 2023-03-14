@@ -1,3 +1,7 @@
+#
+# Modifications Copyright (C) 2022-2023, PUFsecurity, All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+#
 
 # To compile on SunOS: add "-lsocket -lnsl" to LDFLAGS
 # To compile with PKCS11: add "-lpkcs11-helper" to LDFLAGS
@@ -11,6 +15,12 @@ LOCAL_LDFLAGS = -L../library 			\
 		-lmbedtls$(SHARED_SUFFIX)	\
 		-lmbedx509$(SHARED_SUFFIX)	\
 		-lmbedcrypto$(SHARED_SUFFIX)
+
+
+# PUF +++
+include ../../../../src/bsp/tls/mbedtls/pufcc_mbedtls/Makefile.inc
+LOCAL_LDFLAGS += $(THIRDPARTY_INCLUDES)
+# PUF ---
 
 # Enable definition of various functions used throughout the testsuite
 # (gethostname, strdup, fileno...) even when compiling with -std=c99. Harmless

@@ -1,3 +1,7 @@
+#
+# Modifications Copyright (C) 2022-2023, PUFsecurity, All Rights Reserved
+# SPDX-License-Identifier: Apache-2.0
+#
 
 # To compile on SunOS: add "-lsocket -lnsl" to LDFLAGS
 # To compile with PKCS11: add "-lpkcs11-helper" to LDFLAGS
@@ -46,6 +50,12 @@ endif
 ifdef ZLIB
 LOCAL_LDFLAGS += -lz
 endif
+
+
+# PUF +++
+include ../../../../src/bsp/tls/mbedtls/pufcc_mbedtls/Makefile.inc
+LOCAL_LDFLAGS += $(THIRDPARTY_INCLUDES)
+# PUF ---
 
 APPS =	aes/aescrypt2$(EXEXT)		aes/crypt_and_hash$(EXEXT)	\
 	hash/hello$(EXEXT)		hash/generic_sum$(EXEXT)	\

@@ -18,6 +18,12 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
+ 
+/*
+ *  Modifications Copyright (C) 2022-2023, PUFsecurity, All Rights Reserved
+ *  SPDX-License-Identifier: Apache-2.0
+ */
+
 /*
  *  The ITU-T X.509 standard defines a certificate format for PKI.
  *
@@ -1872,6 +1878,22 @@ static int x509_crt_check_signature( const mbedtls_x509_crt *child,
 {
     const mbedtls_md_info_t *md_info;
     unsigned char hash[MBEDTLS_MD_MAX_SIZE];
+
+#ifdef PUF_DEMO_LOG_TLS //PUFsecurity
+    const char *desc = NULL;
+    int ret;
+        
+    ret = mbedtls_oid_get_sig_alg_desc( &(child->sig_oid), &desc );
+    
+    if (ret != 0)
+    {
+        printf("\n[TLS]    Verify certificate signed by unknown algo\n\n");  
+    }
+    else
+    {
+        printf("\n[TLS]    Verify certificate signed by %s\n\n", desc);
+    }       
+#endif
 
     md_info = mbedtls_md_info_from_type( child->sig_md );
     if( mbedtls_md( md_info, child->tbs.p, child->tbs.len, hash ) != 0 )

@@ -23,6 +23,12 @@
  *
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
+ 
+/*
+ *  Modifications Copyright (C) 2022-2023, PUFsecurity, All Rights Reserved
+ *  SPDX-License-Identifier: Apache-2.0
+ */
+
 
 #ifndef MBEDTLS_MD_H
 #define MBEDTLS_MD_H
@@ -454,6 +460,91 @@ int mbedtls_md_hmac_reset( mbedtls_md_context_t *ctx );
 int mbedtls_md_hmac( const mbedtls_md_info_t *md_info, const unsigned char *key, size_t keylen,
                 const unsigned char *input, size_t ilen,
                 unsigned char *output );
+
+#if defined(MBEDTLS_PUFCC_TLS_PRF_CALC_ALT) //PUFsecurity
+#include "pufs_hmac_internal.h"
+#include "pufs_hmac.h"
+
+/**
+ * \brief           This function prepares to authenticate a new message with
+ *                  the same key as the previous HMAC operation by pufcc crytpo.
+ *
+ *                  You may call this function after pufcc_mbedtls_md_hmac_finish().
+ *                  Afterwards call pufcc_mbedtls_md_hmac_update() to pass the new
+ *                  input.
+ *
+ * \param ctx       The message digest context containing an embedded HMAC
+ *                  context.
+ *
+ * \return          \c 0 on success.
+ * \return          #MBEDTLS_ERR_MD_BAD_INPUT_DATA on parameter-verification
+ *                  failure.
+ */
+int pufcc_mbedtls_md_hmac_reset( pufs_hmac_ctx *ctx );
+
+/**
+ * \brief           This function sets the HMAC key and prepares to
+ *                  authenticate a new message by pufcc crytpo.
+ *
+ *                  Call this function after pufcc_mbedtls_md_setup(), to use
+ *                  the MD context for an HMAC calculation, then call
+ *                  pufcc_mbedtls_md_hmac_update() to provide the input data, and
+ *                  pufcc_mbedtls_md_hmac_finish() to get the HMAC value.
+ *
+ * \param ctx       The message digest context containing an embedded HMAC
+ *                  context.
+ * \param key       The HMAC secret key.
+ * \param keylen    The length of the HMAC key in Bytes.
+ *
+ * \return          \c 0 on success.
+ * \return          #MBEDTLS_ERR_MD_BAD_INPUT_DATA on parameter-verification
+ *                  failure.
+ */
+
+int pufcc_mbedtls_md_hmac_starts( pufs_hmac_ctx *ctx, const unsigned char *key, size_t keylen );
+
+/**
+ * \brief           This function feeds an input buffer into an ongoing HMAC
+ *                  computation by pufcc crypto.
+ *
+ *                  Call pufcc_mbedtls_md_hmac_starts() or pufcc_mbedtls_md_hmac_reset()
+ *                  before calling this function.
+ *                  You may call this function multiple times to pass the
+ *                  input piecewise.
+ *                  Afterwards, call pufcc_mbedtls_md_hmac_finish().
+ *
+ * \param ctx       The message digest context containing an embedded HMAC
+ *                  context.
+ * \param input     The buffer holding the input data.
+ * \param ilen      The length of the input data.
+ *
+ * \return          \c 0 on success.
+ * \return          #MBEDTLS_ERR_MD_BAD_INPUT_DATA on parameter-verification
+ *                  failure.
+ */
+int pufcc_mbedtls_md_hmac_update( pufs_hmac_ctx *ctx, const unsigned char *input, size_t ilen );
+
+/**
+ * \brief           This function finishes the HMAC operation, and writes
+ *                  the result to the output buffer by pufcc crytpo.
+ *
+ *                  Call this function after pufcc_mbedtls_md_hmac_starts() and
+ *                  pufcc_mbedtls_md_hmac_update() to get the HMAC value. Afterwards
+ *                  you may either call pufcc_mbedtls_md_free() to clear the context,
+ *                  or call pufcc_mbedtls_md_hmac_reset() to reuse the context with
+ *                  the same HMAC key.
+ *
+ * \param ctx       The message digest context containing an embedded HMAC
+ *                  context.
+ * \param output    The generic HMAC checksum result.
+ *
+ * \return          \c 0 on success.
+ * \return          #MBEDTLS_ERR_MD_BAD_INPUT_DATA on parameter-verification
+ *                  failure.
+ */
+
+int pufcc_mbedtls_md_hmac_finish( pufs_hmac_ctx *ctx, unsigned char *output );
+#endif /* MBEDTLS_PUFCC_TLS_PRF_CALC_ALT */  //eo PUFsecurity
 
 /* Internal use */
 int mbedtls_md_process( mbedtls_md_context_t *ctx, const unsigned char *data );
